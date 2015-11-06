@@ -3,6 +3,9 @@ Randy Olson's Shortest Route Program modified By Andrew Liesinger to:
     1: Detect waypoints file at runtime - if found use it, otherwise look up distances via google calls (and then save to waypoint file)
     2: Dynamically create and open an HTML file showing the route when a shorter route is found
     3: Make it easier to tinker with the Generation / Population parameters
+Modified by Philip Thomas to:
+    1: Check public transit directions for a route through London
+    2: Output corresponding HTML file, and zoom to downtown London
 """
 from __future__ import print_function
 from itertools import combinations
@@ -12,8 +15,9 @@ import numpy as np
 import os.path
 import random
 import webbrowser
+import datetime #for transit depart_time
 
-GOOGLE_MAPS_API_KEY = "Your Key Here"
+GOOGLE_MAPS_API_KEY = "YOUR-API-KEY-HERE"
 waypoints_file = "my-waypoints-dist-dur.tsv"
 
 #This is the general filename - as shorter routes are discovered the Population fitness score will be inserted into the filename
@@ -26,56 +30,13 @@ thisRunGenerations=5000
 thisRunPopulation_size=100
 
 
-all_waypoints = ["USS Alabama, Battleship Parkway, Mobile, AL",
-                 "Grand Canyon National Park, Arizona",
-                 "Toltec Mounds, Scott, AR",
-                 "San Andreas Fault, San Benito County, CA",
-                 "Cable Car Museum, 94108, 1201 Mason St, San Francisco, CA 94108",
-                 "Pikes Peak, Colorado",
-                 "The Mark Twain House & Museum, Farmington Avenue, Hartford, CT",
-                 "New Castle Historic District, Delaware",
-                 "White House, Pennsylvania Avenue Northwest, Washington, DC",
-                 "Cape Canaveral, FL",
-                 "Okefenokee Swamp Park, Okefenokee Swamp Park Road, Waycross, GA",
-                 "Craters of the Moon National Monument & Preserve, Arco, ID",
-                 "Lincoln Home National Historic Site Visitor Center, 426 South 7th Street, Springfield, IL",
-                 "West Baden Springs Hotel, West Baden Avenue, West Baden Springs, IN",
-                 "Terrace Hill, Grand Avenue, Des Moines, IA",
-                 "C. W. Parker Carousel Museum, South Esplanade Street, Leavenworth, KS",
-                 "Mammoth Cave National Park, Mammoth Cave Pkwy, Mammoth Cave, KY",
-                 "French Quarter, New Orleans, LA",
-                 "Acadia National Park, Maine",
-                 "Maryland State House, 100 State Cir, Annapolis, MD 21401",
-                 "USS Constitution, Boston, MA",
-                 "Olympia Entertainment, Woodward Avenue, Detroit, MI",
-                 "Fort Snelling, Tower Avenue, Saint Paul, MN",
-                 "Vicksburg National Military Park, Clay Street, Vicksburg, MS",
-                 "Gateway Arch, Washington Avenue, St Louis, MO",
-                 "Glacier National Park, West Glacier, MT",
-                 "Ashfall Fossil Bed, Royal, NE",
-                 "Hoover Dam, NV",
-                 "Omni Mount Washington Resort, Mount Washington Hotel Road, Bretton Woods, NH",
-                 "Congress Hall, Congress Place, Cape May, NJ 08204",
-                 "Carlsbad Caverns National Park, Carlsbad, NM",
-                 "Statue of Liberty, Liberty Island, NYC, NY",
-                 "Wright Brothers National Memorial Visitor Center, Manteo, NC",
-                 "Fort Union Trading Post National Historic Site, Williston, North Dakota 1804, ND",
-                 "Spring Grove Cemetery, Spring Grove Avenue, Cincinnati, OH",
-                 "Chickasaw National Recreation Area, 1008 W 2nd St, Sulphur, OK 73086",
-                 "Columbia River Gorge National Scenic Area, Oregon",
-                 "Liberty Bell, 6th Street, Philadelphia, PA",
-                 "The Breakers, Ochre Point Avenue, Newport, RI",
-                 "Fort Sumter National Monument, Sullivan's Island, SC",
-                 "Mount Rushmore National Memorial, South Dakota 244, Keystone, SD",
-                 "Graceland, Elvis Presley Boulevard, Memphis, TN",
-                 "The Alamo, Alamo Plaza, San Antonio, TX",
-                 "Bryce Canyon National Park, Hwy 63, Bryce, UT",
-                 "Shelburne Farms, Harbor Road, Shelburne, VT",
-                 "Mount Vernon, Fairfax County, Virginia",
-                 "Hanford Site, Benton County, WA",
-                 "Lost World Caverns, Lewisburg, WV",
-                 "Taliesin, County Road C, Spring Green, Wisconsin",
-                 "Yellowstone National Park, WY 82190"]
+all_waypoints = ["Euston Rd, London N19 AL, United Kingdom",
+                 "Great Russell St, London WC1B 3DG, United Kingdom",
+                 "Trafalgar Square, London WC2N 5DN, United Kingdom",
+                 "24-26 Leicester Square, London WC2H 7LQ, United Kingdom",
+                 "Strand, London WC2R 1LA, United Kingdom",
+                 "London SW1A 2BJ, United Kingdom"]
+
 
 def CreateOptimalRouteHtmlFile(optimal_route, distance, display=True):
     optimal_route = list(optimal_route)
@@ -87,10 +48,10 @@ def CreateOptimalRouteHtmlFile(optimal_route, distance, display=True):
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
-        <meta name="description" content="Randy Olson uses machine learning to find the optimal road trip across the U.S.">
-        <meta name="author" content="Randal S. Olson">
+        <meta name="description" content="Using machine learning to find the optimal transit route through London">
+        <meta name="author" content="Philip S. Thomas">
         
-        <title>The optimal road trip across the U.S. according to machine learning</title>
+        <title>The optimal transit directions through London according to machine learning</title>
         <style>
           html, body, #map-canvas {
             height: 100%;
@@ -118,9 +79,9 @@ def CreateOptimalRouteHtmlFile(optimal_route, distance, display=True):
             var map;
 
             function initialize() {
-              var center = new google.maps.LatLng(39, -96);
+              var center = new google.maps.LatLng(51.5, -0.15);
               var mapOptions = {
-                zoom: 5,
+                zoom: 13,
                 center: center
               };
               map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
@@ -370,10 +331,15 @@ if __name__ == '__main__':
             try:
                 route = gmaps.distance_matrix(origins=[waypoint1],
                                               destinations=[waypoint2],
-                                              mode="driving", # Change to "walking" for walking directions,
+                                              mode="transit", # Change to "walking" for walking directions,
                                                               # "bicycling" for biking directions, etc.
+                                                              # "transit" for transit directions
+                                                              # "driving" for driving. . .
+                                                              # see: https://github.com/googlemaps/google-maps-services-python/blob/master/googlemaps/distance_matrix.py
                                               language="English",
-                                              units="metric")
+                                              units="metric",
+                                              departure_time=datetime.datetime(2015, 11, 7, 8, 0)) # int or datetime, print datetime.datetime(2015, 11, 7, 8, 0) = "2015-11-07 08:00:00"
+
 
                 # "distance" is in meters
                 distance = route["rows"][0]["elements"][0]["distance"]["value"]
@@ -385,6 +351,7 @@ if __name__ == '__main__':
                 waypoint_durations[frozenset([waypoint1, waypoint2])] = duration
         
             except Exception as e:
+                print(e)  #Phil Added to determine error
                 print("Error with finding the route between %s and %s." % (waypoint1, waypoint2))
         
         print("Saving Waypoints")
